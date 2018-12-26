@@ -164,7 +164,7 @@ struct FourDOFError
 	template <typename T>
 	bool operator()(const T* const yaw_i, const T* ti, const T* yaw_j, const T* tj, T* residuals) const
 	{
-		T t_w_ij[3];
+		T t_w_ij[3];//相对t
 		t_w_ij[0] = tj[0] - ti[0];
 		t_w_ij[1] = tj[1] - ti[1];
 		t_w_ij[2] = tj[2] - ti[2];
@@ -177,7 +177,7 @@ struct FourDOFError
 		RotationMatrixTranspose(w_R_i, i_R_w);
 		// rotation matrix rotate point
 		T t_i_ij[3];
-		RotationMatrixRotatePoint(i_R_w, t_w_ij, t_i_ij);
+		RotationMatrixRotatePoint(i_R_w, t_w_ij, t_i_ij);//i系下的相对t
 
 		residuals[0] = (t_i_ij[0] - T(t_x));
 		residuals[1] = (t_i_ij[1] - T(t_y));
@@ -193,7 +193,7 @@ struct FourDOFError
 	  return (new ceres::AutoDiffCostFunction<
 	          FourDOFError, 4, 1, 3, 1, 3>(
 	          	new FourDOFError(t_x, t_y, t_z, relative_yaw, pitch_i, roll_i)));
-	}
+	}//FourDOFError是用来算残差的
 
 	double t_x, t_y, t_z;
 	double relative_yaw, pitch_i, roll_i;

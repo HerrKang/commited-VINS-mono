@@ -444,7 +444,7 @@ void PoseGraph::optimize4DoF()
             loss_function = new ceres::HuberLoss(0.1);
             //loss_function = new ceres::CauchyLoss(1.0);
             ceres::LocalParameterization* angle_local_parameterization =
-                AngleLocalParameterization::Create();
+                AngleLocalParameterization::Create();//定义欧拉角的加法
 
             list<KeyFrame*>::iterator it;
 
@@ -453,12 +453,13 @@ void PoseGraph::optimize4DoF()
             {
                 if ((*it)->index < first_looped_index)
                     continue;
-                (*it)->local_index = i;
+                (*it)->local_index = i;//!关键帧在链表里的编号
                 Quaterniond tmp_q;
                 Matrix3d tmp_r;
                 Vector3d tmp_t;
                 (*it)->getVioPose(tmp_t, tmp_r);
                 tmp_q = tmp_r;
+                //!相当于vector2double
                 t_array[i][0] = tmp_t(0);
                 t_array[i][1] = tmp_t(1);
                 t_array[i][2] = tmp_t(2);
@@ -473,7 +474,7 @@ void PoseGraph::optimize4DoF()
 
                 problem.AddParameterBlock(euler_array[i], 1, angle_local_parameterization);
                 problem.AddParameterBlock(t_array[i], 3);
-
+                //!回环帧的位姿设置为常数
                 if ((*it)->index == first_looped_index || (*it)->sequence == 0)
                 {   
                     problem.SetParameterBlockConstant(euler_array[i]);
@@ -481,14 +482,14 @@ void PoseGraph::optimize4DoF()
                 }
 
                 //add edge
-                for (int j = 1; j < 5; j++)
+                for (int j = 1; j < 5; j++)//!j表示和前第多少个关键帧构成边，此处为第1~5个
                 {
                   if (i - j >= 0 && sequence_array[i] == sequence_array[i-j])
                   {
-                    Vector3d euler_conncected = Utility::R2ypr(q_array[i-j].toRotationMatrix());
-                    Vector3d relative_t(t_array[i][0] - t_array[i-j][0], t_array[i][1] - t_array[i-j][1], t_array[i][2] - t_array[i-j][2]);
-                    relative_t = q_array[i-j].inverse() * relative_t;
-                    double relative_yaw = euler_array[i][0] - euler_array[i-j][0];
+                    Vector3d euler_conncected = Utility::R2ypr(q_array[i-j].toRotationMatrix());//回环帧位姿旋转矩阵
+                    Vector3d relative_t(t_array[i][0] - t_array[i-j][0], t_array[i][1] - t_array[i-j][1], t_array[i][2] - t_array[i-j][2]);//相对t
+                    relative_t = q_array[i-j].inverse() * relative_t;//回环帧坐标系下的相对t
+                    double relative_yaw = euler_array[i][0] - euler_array[i-j][0];//回环帧与当前帧的相对yaw
                     ceres::CostFunction* cost_function = FourDOFError::Create( relative_t.x(), relative_t.y(), relative_t.z(),
                                                    relative_yaw, euler_conncected.y(), euler_conncected.z());
                     problem.AddResidualBlock(cost_function, NULL, euler_array[i-j], 
@@ -503,13 +504,14 @@ void PoseGraph::optimize4DoF()
                 if((*it)->has_loop)
                 {
                     assert((*it)->loop_index >= first_looped_index);
-                    int connected_index = getKeyFrame((*it)->loop_index)->local_index;
+                    int connected_index = getKeyFrame((*it)->loop_index)->local_index;//关键帧在keyframe链表里的编号
                     Vector3d euler_conncected = Utility::R2ypr(q_array[connected_index].toRotationMatrix());
                     Vector3d relative_t;
                     relative_t = (*it)->getLoopRelativeT();
                     double relative_yaw = (*it)->getLoopRelativeYaw();
+                    //回环残差相比连续帧残差多一个weight
                     ceres::CostFunction* cost_function = FourDOFWeightError::Create( relative_t.x(), relative_t.y(), relative_t.z(),
-                                                                               relative_yaw, euler_conncected.y(), euler_conncected.z());
+                                                                               relative_yaw, euler_conncected.y(), euler_conncected.z());//回环相对位姿
                     problem.AddResidualBlock(cost_function, loss_function, euler_array[connected_index], 
                                                                   t_array[connected_index], 
                                                                   euler_array[i], 
@@ -543,17 +545,18 @@ void PoseGraph::optimize4DoF()
                 tmp_q = Utility::ypr2R(Vector3d(euler_array[i][0], euler_array[i][1], euler_array[i][2]));
                 Vector3d tmp_t = Vector3d(t_array[i][0], t_array[i][1], t_array[i][2]);
                 Matrix3d tmp_r = tmp_q.toRotationMatrix();
-                (*it)-> updatePose(tmp_t, tmp_r);
+                (*it)-> updatePose(tmp_t, tmp_r);//更新了T_w_i和R_w_i
 
-                if ((*it)->index == cur_index)
+                if ((*it)->index == cur_index)//全局位姿图中当前帧之前的才更新位姿
                     break;
                 i++;
             }
 
             Vector3d cur_t, vio_t;
             Matrix3d cur_r, vio_r;
-            cur_kf->getPose(cur_t, cur_r);
-            cur_kf->getVioPose(vio_t, vio_r);
+            cur_kf->getPose(cur_t, cur_r);//T_w_i,R_w_i赋给cur_t,cur_r
+            cur_kf->getVioPose(vio_t, vio_r);//vio_T_w_i,vio_R_w_i赋给vio_t,vio_r
+            //!求优化前后漂移
             m_drift.lock();
             yaw_drift = Utility::R2ypr(cur_r).x() - Utility::R2ypr(vio_r).x();
             r_drift = Utility::ypr2R(Vector3d(yaw_drift, 0, 0));
@@ -564,6 +567,7 @@ void PoseGraph::optimize4DoF()
             //cout << "yaw drift " << yaw_drift << endl;
 
             it++;
+            //利用求出的漂移更新当前帧之后的位姿
             for (; it != keyframelist.end(); it++)
             {
                 Vector3d P;
@@ -649,14 +653,14 @@ void PoseGraph::updatePath()
         //draw local connection
         if (SHOW_S_EDGE)
         {
-            list<KeyFrame*>::reverse_iterator rit = keyframelist.rbegin();
+            list<KeyFrame*>::reverse_iterator rit = keyframelist.rbegin();//反向迭代器
             list<KeyFrame*>::reverse_iterator lrit;
             for (; rit != keyframelist.rend(); rit++)  
             {  
                 if ((*rit)->index == (*it)->index)
                 {
                     lrit = rit;
-                    lrit++;
+                    lrit++;//前一帧
                     for (int i = 0; i < 4; i++)
                     {
                         if (lrit == keyframelist.rend())
@@ -666,7 +670,7 @@ void PoseGraph::updatePath()
                             Vector3d conncected_P;
                             Matrix3d connected_R;
                             (*lrit)->getPose(conncected_P, connected_R);
-                            posegraph_visualization->add_edge(P, conncected_P);
+                            posegraph_visualization->add_edge(P, conncected_P);//和前4帧相连
                         }
                         lrit++;
                     }
@@ -674,7 +678,7 @@ void PoseGraph::updatePath()
                 }
             } 
         }
-        if (SHOW_L_EDGE)
+        if (SHOW_L_EDGE)//draw loop connection
         {
             if ((*it)->has_loop && (*it)->sequence == sequence_cnt)
             {
